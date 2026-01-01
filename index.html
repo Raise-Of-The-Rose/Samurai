@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>EXACT API DATA + FINAL PREDICTION</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{background:#0b0b0b;color:#fff;font-family:Arial;padding:10px}
+h2{text-align:center;color:#00ffd5}
+.box{background:#111;padding:12px;margin:10px 0;border-radius:6px;text-align:center}
+.pred{font-size:36px;color:#00ff88;font-weight:bold}
+.small{color:#ffcc00}
+.big{color:#00ff00}
+.red{color:#ff4d4d}
+.green{color:#00ff88}
+.violet{color:#cc66ff}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+th,td{border-bottom:1px solid #222;padding:6px;text-align:center}
+th{color:#00ffd5}
+.muted{color:#aaa;font-size:12px}
+
+/* PREDICTION ANIMATION */
+@keyframes pulsePrediction {
+  0%   { transform: scale(0.7); opacity: 0.3; }
+  50%  { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animatePrediction { animation: pulsePrediction 0.8s ease-out forwards; }
+
+/* FLASH WHEN CHANGED */
+.flash-big {
+  animation: flashBig 0.6s ease-out;
+}
+@keyframes flashBig {
+  0%   { color:#00ff88; text-shadow:0 0 10px #00ff88; }
+  50%  { color:#00995c; text-shadow:0 0 20px #00ff88; }
+  100% { color:#00ff88; text-shadow:none; }
+}
+
+.flash-small {
+  animation: flashSmall 0.6s ease-out;
+}
+@keyframes flashSmall {
+  0%   { color:#ffcc00; text-shadow:0 0 10px #ffcc00; }
+  50%  { color:#d6a800; text-shadow:0 0 20px #ffcc00; }
+  100% { color:#ffcc00; text-shadow:none; }
+}
+
+/* GLOW BORDER */
+.prediction-box {
+  border:2px solid #00ffd5;
+  box-shadow:0 0 18px #00ffd580;
+  padding:14px;
+  border-radius:8px;
+  margin-bottom:12px;
+}
+
+/* HIDE HISTORY COMPLETELY */
+#historyBox, .history-title {
+  display:none !important;
+}
+</style>
+</head>
+
+<body>
+
+<h2>EXACT API DATA</h2>
+<div class="box" id="status">Loading…</div>
+
+<div class="box">
+  <div id="prediction">---</div>
+</div>
+
+<div class="box history-title">
+  <div class="muted">Prediction History (Latest First)</div>
+  <div id="historyBox" class="small"></div>
+</div>
+
+<div class="box muted" id="timeBox">---</div>
+
+<div class="box">
+  <table>
+    <thead>
+      <tr>
+        <th>Period</th>
+        <th>Number</th>
+        <th>Size</th>
+        <th>Color</th>
+      </tr>
+    </thead>
+    <tbody id="dataTable"></tbody>
+  </table>
+</div>
+
+<script>
+const API_URL = "https://harshpredictor.site/api/api.php";
+
+function getSize(n){ return Number(n) >= 5 ? "BIG" : "SMALL"; }
+function normalizeColor(c){
+  if(c.includes("green")) return "green";
+  if(c.includes("red")) return "red";
+  return "violet";
+}
+
+/* FINAL RULE MAPPING */
+const displayRule = {
+  0: {text:"SMALL", val:5},
+  1: {text:"SMALL", val:6},
+  2: {text:"SMALL", val:7},
+  3: {text:"SMALL", val:8},
+  4: {text:"SMALL", val:9},
+  5: {text:"BIG",   val:0},
+  6: {text:"BIG",   val:1},
+  7: {text:"BIG",   val:2},
+  8: {text:"BIG",   val:3},
+  9: {text:"BIG",   val:4}
+};
+
+let lastShown = null;
+
+async function fetchData(){
+  document.getElementById("status").innerText = "Fetching…";
+
+  const res = await fetch(API_URL,{cache:"no-store"});
+  const json = await res.json();
+  let list = json?.data?.list;
+
+  if(!Array.isArray(list) || list.length === 0){
+    document.getElementById("status").innerText = "No data from API";
+    return;
+  }
+
+  list = list.sort((a,b)=> Number(b.issueNumber) - Number(a.issueNumber));
+
+  const latest = list[0];
+  const latestKey = latest.number+"|"+getSize(latest.number)+"|"+normalizeColor(latest.color);
+
+  const transitions = {};
+  for(let i=0;i<list.length-1;i++){
+    const k = list[i].number+"|"+getSize(list[i].number)+"|"+normalizeColor(list[i].color);
+    const nx = Number(list[i+1].number);
+    transitions[k] ??= {};
+    transitions[k][nx] = (transitions[k][nx]||0)+1;
+  }
+
+  let secretPrediction = Number(latest.number);
+  if(transitions[latestKey]){
+    secretPrediction = Number(
+      Object.entries(transitions[latestKey]).sort((a,b)=>b[1]-a[1])[0][0]
+    );
+  }
+
+  let finalData = displayRule[secretPrediction];
+  let nextPeriod = (Number(list[0].issueNumber) + 1).toString();
+
+  let animationClass = "";
+  if(lastShown !== null && lastShown !== finalData.text){
+    animationClass = finalData.text === "BIG" ? "flash-big" : "flash-small";
+  }
+  lastShown = finalData.text;
+
+  document.getElementById("prediction").innerHTML = `
+    <div class="prediction-box">
+      <div class="muted" style="font-size:14px;margin-bottom:6px;">
+        Next Period: <span style="color:#00ffd5;">${nextPeriod}</span>
+      </div>
+      <div class="pred animatePrediction ${animationClass}"
+           style="letter-spacing:6px;font-size:36px;font-weight:bold;">
+        ${finalData.text}&nbsp;&nbsp;&nbsp;&nbsp;${finalData.val}
+      </div>
+    </div>
+  `;
+
+  const tbody = document.getElementById("dataTable");
+  tbody.innerHTML = "";
+  list.forEach(row=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${row.issueNumber}</td>
+      <td>${row.number}</td>
+      <td class="${getSize(row.number).toLowerCase()}">${getSize(row.number)}</td>
+      <td class="${normalizeColor(row.color)}">${row.color}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("timeBox").innerText =
+    "Updated at " + new Date().toLocaleTimeString();
+  document.getElementById("status").innerText = "Exact API data loaded ✔";
+}
+
+fetchData();
+setInterval(fetchData,60000);
+</script>
+
+</body>
+</html>
